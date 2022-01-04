@@ -8,6 +8,7 @@ defmodule Fleature.Application do
     children = [
       Fleature.Client,
       Fleature.Store,
+      Fleature.Usage,
       {Registry,
        keys: :duplicate, name: Fleature.Registry, partitions: System.schedulers_online()}
     ]

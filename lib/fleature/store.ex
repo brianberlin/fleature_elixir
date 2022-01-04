@@ -6,6 +6,7 @@ defmodule Fleature.Store do
   end
 
   def enabled?(name) do
+    Fleature.Usage.used(name)
     GenServer.call(__MODULE__, {:enabled?, name})
   end
 

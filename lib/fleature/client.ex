@@ -4,6 +4,18 @@ defmodule Fleature.Client do
   alias Phoenix.Channels.GenSocketClient
   @behaviour GenSocketClient
 
+  def send_usage_data(usage_data) do
+    pid = GenServer.whereis(__MODULE__)
+    send(pid, {:send_usage_data, usage_data})
+  end
+
+  @spec child_spec(any) :: %{
+          id: Fleature.Client,
+          restart: :permanent,
+          shutdown: 500,
+          start: {Fleature.Client, :start_link, [...]},
+          type: :worker
+        }
   def child_spec(opts) do
     %{
       id: __MODULE__,
@@ -18,7 +30,9 @@ defmodule Fleature.Client do
     GenSocketClient.start_link(
       __MODULE__,
       Phoenix.Channels.GenSocketClient.Transport.WebSocketClient,
-      url()
+      url(),
+      [],
+      name: __MODULE__
     )
   end
 
@@ -27,7 +41,7 @@ defmodule Fleature.Client do
   end
 
   def handle_connected(transport, state) do
-    Logger.info("connected")
+    log("connected")
     GenSocketClient.join(transport, topic())
     {:ok, state}
   end
@@ -38,22 +52,22 @@ defmodule Fleature.Client do
   end
 
   def handle_message(_topic, "update_one", feature_flag, _transport, state) do
-    [{name, status}] = Enum.into(feature_flag, [])
-    Fleature.Store.update_one(name, status)
+    Fleature.Store.update_one(feature_flag["name"], feature_flag["status"])
     {:ok, state}
   end
 
   def handle_message(topic, event, payload, _transport, state) do
-    Logger.warn("message on topic #{topic}: #{event} #{inspect(payload)}")
+    log("message on topic", topic: topic, event: event, payload: payload)
     {:ok, state}
   end
 
   def handle_info({:join, topic}, transport, state) do
-    Logger.info("joining the topic #{topic}")
+    log("joining the topic", topic: topic)
 
     case GenSocketClient.join(transport, topic) do
       {:error, reason} ->
-        Logger.error("error joining the topic #{topic}: #{inspect(reason)}")
+        Process.send_after(self(), {:join, topic}, :timer.seconds(1))
+        log("error joining the topic", topic: topic, reason: reason)
 
       {:ok, _ref} ->
         :ok
@@ -63,47 +77,56 @@ defmodule Fleature.Client do
   end
 
   def handle_info(:connect, _transport, state) do
-    Logger.info("connecting")
+    log("connecting")
     {:connect, state}
   end
 
+  def handle_info({:send_usage_data, usage_data}, transport, state) do
+    client_id = Application.get_env(:fleature, :client_id)
+    GenSocketClient.push(transport, "client:" <> client_id, "usage", usage_data)
+
+    {:ok, state}
+  end
+
   def handle_info(message, _transport, state) do
-    Logger.warn("Unhandled message #{inspect(message)}")
+    log("Unhandled message", message: message)
     {:ok, state}
   end
 
   def handle_disconnected(reason, state) do
-    Logger.error("disconnected: #{inspect(reason)}")
+    log("disconnected", reason: reason)
+    Process.send_after(self(), :connect, :timer.seconds(1))
     {:ok, state}
   end
 
   def handle_joined(topic, _payload, _transport, state) do
-    Logger.info("joined the topic #{topic}")
+    log("joined", topic: topic)
     {:ok, state}
   end
 
   def handle_join_error(topic, payload, _transport, state) do
-    Logger.error("join error on the topic #{topic}: #{inspect(payload)}")
+    log("join error", topic: topic, payload: payload)
     {:ok, state}
   end
 
   def handle_channel_closed(topic, payload, _transport, state) do
-    Logger.error("disconnected from the topic #{topic}: #{inspect(payload)}")
+    log("disconnected", topic: topic, payload: payload)
+    Process.send_after(self(), {:join, topic}, :timer.seconds(1))
     {:ok, state}
   end
 
   def handle_reply(topic, _ref, payload, _transport, state) do
-    Logger.warn("reply on topic #{topic}: #{inspect(payload)}")
+    log("reply", topic: topic, payload: payload)
     {:ok, state}
   end
 
   def handle_call(message, _from, _transport, state) do
-    Logger.warn("Did not expect to receive call with message: #{inspect(message)}")
+    log("unexpected message", message: message)
     {:reply, {:error, :unexpected_message}, state}
   end
 
   def terminate(reason, _state) do
-    Logger.info("Terminating and cleaning up state. Reason for termination: #{inspect(reason)}")
+    log("terminating", reason: reason)
   end
 
   defp url do
@@ -122,5 +145,9 @@ defmodule Fleature.Client do
   defp topic do
     client_id = Application.get_env(:fleature, :client_id)
     "client:" <> client_id
+  end
+
+  defp log(message, opts \\ []) do
+    Logger.debug("FLEATURE: #{message} - #{inspect(opts)}")
   end
 end
