@@ -22,8 +22,7 @@ defmodule Fleature.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:phoenix_gen_socket_client, "~> 4.0"},
-      {:websocket_client, "~> 1.2"},
+      {:httpoison, "~> 1.7"},
       {:jason, "~> 1.2"}
     ]
   end

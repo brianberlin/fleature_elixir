@@ -10,12 +10,8 @@ defmodule Fleature.Store do
     GenServer.call(__MODULE__, {:enabled?, name})
   end
 
-  def update_all(feature_flags) do
-    GenServer.cast(__MODULE__, {:update_all, feature_flags})
-  end
-
-  def update_one(name, status) do
-    GenServer.cast(__MODULE__, {:update_one, name, status})
+  def update(name, status) do
+    GenServer.cast(__MODULE__, {:update, name, status})
   end
 
   def start_link(_) do
@@ -27,16 +23,7 @@ defmodule Fleature.Store do
     {:ok, feature_flags}
   end
 
-  def handle_cast({:update_all, feature_flags}, _state) do
-    Enum.each(feature_flags, fn {name, status} ->
-      dispatch("fleature:feature_flags:" <> name, {:feature_flag, name, status})
-      dispatch("fleature:feature_flags", {:feature_flag, name, status})
-    end)
-
-    {:noreply, feature_flags}
-  end
-
-  def handle_cast({:update_one, name, status}, feature_flags) do
+  def handle_cast({:update, name, status}, feature_flags) do
     dispatch("fleature:feature_flags:" <> name, {:feature_flag, name, status})
     dispatch("fleature:feature_flags", {:feature_flag, name, status})
     {:noreply, Map.put(feature_flags, name, status)}
